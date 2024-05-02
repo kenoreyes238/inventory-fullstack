@@ -53,12 +53,11 @@ app.use(async (req, res, next) => {
 app.post('/register', async function (req, res) {
   try {
     const { password, email } = req.body;
-    // const isAdmin = userIsAdmin ? 1 : 0
     const hashedPassword = await bcrypt.hash(password, 10);
-    const [user] = await req.db.query(
+    const [users] = await req.db.query(
       `INSERT INTO users (email, password)
       VALUES (:email, :hashedPassword);`,
-      { username, hashedPassword, userIsAdmin: isAdmin });
+      { email, hashedPassword });
     const jwtEncodedUser = jwt.sign(
       { userId: email.insertId, ...req.body },
       process.env.JWT_KEY
@@ -73,49 +72,61 @@ app.post('/register', async function (req, res) {
 app.post('/login', async function (req, res) {
   try {
     const { email, password: userEnteredPassword } = req.body;
-    const [[user]] = await req.db.query(`SELECT * FROM user WHERE email = :email`, { email });
-    if (!user) res.json('Username not found');
-    const hashedPassword = `${user.password}`
+    const [[users]] = await req.db.query(`SELECT * FROM users WHERE email = :email`, { email });
+    if (!users) {
+      return res.json({ error: 'Email not found', success: false });
+    }
+    const hashedPassword = users.password;
     const passwordMatches = await bcrypt.compare(userEnteredPassword, hashedPassword);
     if (passwordMatches) {
       const payload = {
-        userId: user.id,
-        email: user.email,
-        // userIsAdmin: user.admin_flag
-      }   
+        userId: users.id,
+        email: users.email
+      };
       const jwtEncodedUser = jwt.sign(payload, process.env.JWT_KEY);
-      res.json({ jwt: jwtEncodedUser, success: true });
+      return res.json({ jwt: jwtEncodedUser, success: true });
     } else {
-      res.json({ err: 'Password is wrong', success: false });
+      return res.json({ error: 'Password is wrong', success: false });
     }
   } catch (err) {
-    console.log('Error in /authenticate', err);
+    console.log('Error in /login', err);
+    return res.status(500).json({ error: 'Internal server error', success: false });
   }
 });
 
-// app.use(async function verifyJwt(req, res, next) {
-//   const { authorization: authHeader } = req.headers;
-//   if (!authHeader) res.json('Invalid authorization, no authorization headers');
-//   const [scheme, jwtToken] = authHeader.split(' ');
-//   if (scheme !== 'Bearer') res.json('Invalid authorization, invalid authorization scheme');
-//   try {
-//     const decodedJwtObject = jwt.verify(jwtToken, process.env.JWT_KEY);
-//     req.user = decodedJwtObject;
-//   } catch (err) {
-//     console.log(err);
-//     if (
-//       err.message && 
-//       (err.message.toUpperCase() === 'INVALID TOKEN' || 
-//       err.message.toUpperCase() === 'JWT EXPIRED')
-//     ) {
-//       req.status = err.status || 500;
-//       req.body = err.message;
-//       req.app.emit('jwt-error', err, req);
-//     } else {
-//       throw((err.status || 500), err.message);
-//     }
-//   }
 
-//   await next();
-// });
+app.use(async function verifyJwt(req, res, next) {
+  const { authorization: authHeader } = req.headers;
+  if (!authHeader) res.json('Invalid authorization, no authorization headers');
+  const [scheme, jwtToken] = authHeader.split(' ');
+  if (scheme !== 'Bearer') res.json('Invalid authorization, invalid authorization scheme');
+  try {
+    const decodedJwtObject = jwt.verify(jwtToken, process.env.JWT_KEY);
+    req.user = decodedJwtObject;
+  } catch (err) {
+    console.log(err);
+    if (
+      err.message && 
+      (err.message.toUpperCase() === 'INVALID TOKEN' || 
+      err.message.toUpperCase() === 'JWT EXPIRED')
+    ) {
+      req.status = err.status || 500;
+      req.body = err.message;
+      req.app.emit('jwt-error', err, req);
+    } else {
+      throw((err.status || 500), err.message);
+    }
+  }
 
+  await next();
+});
+
+app.post('/logout', function (req, res) {
+  try {
+    res.clearCookie('jwtToken'); 
+    res.json({ success: true }); 
+  } catch (error) {
+    console.error('Error during sign-out:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
