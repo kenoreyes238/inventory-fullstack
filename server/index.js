@@ -8,14 +8,14 @@ const bodyParser = require('body-parser');
 require('dotenv').config();
 
 const app = express();
-const port = process.env.PORT || 3001; 
+const port = process.env.PORT; 
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 })
 
 const corsOptions = {
-   origin: '*', 
+   origin: 'http://localhost:3000', 
    credentials: true,  
    'access-control-allow-credentials': true,
    optionSuccessStatus: 200,
@@ -53,15 +53,19 @@ app.use(async (req, res, next) => {
 app.post('/register', async function (req, res) {
   try {
     const { password, email } = req.body;
+
     const hashedPassword = await bcrypt.hash(password, 10);
+
     const [users] = await req.db.query(
-      `INSERT INTO users (email, password)
+      `INSERT INTO users (Email, password)
       VALUES (:email, :hashedPassword);`,
       { email, hashedPassword });
+
     const jwtEncodedUser = jwt.sign(
-      { userId: email.insertId, ...req.body },
+      { userId: users.insertId, ...req.body },
       process.env.JWT_KEY
     );
+
     res.json({ jwt: jwtEncodedUser, success: true });
   } catch (err) {
     console.log('error', err);
@@ -84,6 +88,8 @@ app.post('/login', async function (req, res) {
         email: users.email
       };
       const jwtEncodedUser = jwt.sign(payload, process.env.JWT_KEY);
+
+      res.cookie('jwtToken', jwtEncodedUser, {httpOnly: true});
       return res.json({ jwt: jwtEncodedUser, success: true });
     } else {
       return res.json({ error: 'Password is wrong', success: false });
@@ -97,11 +103,16 @@ app.post('/login', async function (req, res) {
 
 app.use(async function verifyJwt(req, res, next) {
   const { authorization: authHeader } = req.headers;
+  
   if (!authHeader) res.json('Invalid authorization, no authorization headers');
+
   const [scheme, jwtToken] = authHeader.split(' ');
+
   if (scheme !== 'Bearer') res.json('Invalid authorization, invalid authorization scheme');
+
   try {
     const decodedJwtObject = jwt.verify(jwtToken, process.env.JWT_KEY);
+
     req.user = decodedJwtObject;
   } catch (err) {
     console.log(err);
@@ -110,10 +121,12 @@ app.use(async function verifyJwt(req, res, next) {
       (err.message.toUpperCase() === 'INVALID TOKEN' || 
       err.message.toUpperCase() === 'JWT EXPIRED')
     ) {
+
       req.status = err.status || 500;
       req.body = err.message;
       req.app.emit('jwt-error', err, req);
     } else {
+
       throw((err.status || 500), err.message);
     }
   }
@@ -123,10 +136,39 @@ app.use(async function verifyJwt(req, res, next) {
 
 app.post('/logout', function (req, res) {
   try {
-    res.clearCookie('jwtToken'); 
-    res.json({ success: true }); 
+    res.clearCookie('jwtToken'); // Clear the cookie named 'jwtToken'
+
+    res.json({ success: true });
   } catch (error) {
     console.error('Error during sign-out:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/addProduct', async (req, res) => {
+  try {
+      const { name, price, quantity } = req.body;
+  } catch (error) {
+      console.error('Error adding product:', error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/deleteProduct/:productId', async (req, res) => {
+  try {
+      const productId = req.params.productId;
+  } catch (error) {
+      console.error('Error deleting product:', error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/products', async (req, res) => {
+  try {
+      // Fetch products from the database
+      // Send products to the client
+  } catch (error) {
+      console.error('Error fetching products:', error);
+      res.status(500).json({ error: 'Internal server error' });
   }
 });
